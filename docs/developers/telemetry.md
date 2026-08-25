@@ -4,6 +4,18 @@
 UUID, boot-local sequence, UTC timestamp, optional position, canonical metric map and
 device-health map. PostgreSQL uniquely constrains sample UUIDs; a retry after a lost
 response reports the row as duplicate without changing history or rerunning hooks.
+The response also carries the device configuration version, allowing the agent to fetch
+configuration only when it changes instead of repeatedly downloading the full profile.
+This endpoint is not tied to the bundled Go executable. Custom implementations use the
+same authentication, schema and idempotency rules; see
+[Build a custom agent](./custom-agents.md).
+
+The Go agent separates one-second movement observation from durable reporting. Canonical
+`vehicle.ready`/`vehicle.ignition` evidence takes priority, followed by fresh CAN speed and
+GPS motion. A zero-speed observation only starts a five-minute inactivity timer. The
+selected configuration supplies separate driving and parked intervals. Sampling and
+upload use the same interval in each state, so normal operation sends each durable point
+immediately while retaining the SQLite retry queue for failures.
 
 Position and common query dimensions are relational columns. Variable canonical
 metrics remain JSONB. The newest recorded sample updates `vehicle_state`, making live

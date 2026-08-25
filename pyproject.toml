@@ -56,7 +56,7 @@ include = ["backend*", "agent*"]
 exclude = ["backend.tests*", "agent.tests*"]
 
 [tool.setuptools.package-data]
-agent = ["profiles/*.yaml", "installer/*.sh"]
+agent = ["profiles/*.yaml", "installer/*.sh", "agent.toml"]
 
 [tool.pytest.ini_options]
 testpaths = ["backend/tests", "agent/tests"]

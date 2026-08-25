@@ -32,6 +32,62 @@ export interface Vehicle {
   updated_at: string
 }
 
+export interface TelemetryPolicy {
+  sampling_seconds: number
+  upload_seconds: number
+  parked_sampling_seconds: number
+  parked_upload_seconds: number
+}
+
+export interface Device {
+  id: string
+  vehicle_id: string
+  name: string
+  credential_version: number
+  agent_version: string | null
+  version_compatibility: 'compatible' | 'warning' | 'incompatible' | 'unknown'
+  hostname: string | null
+  hardware: Record<string, unknown>
+  online: boolean
+  last_seen_at: string | null
+  last_config_sync_at: string | null
+  config_version: number
+  telemetry_policy: TelemetryPolicy
+  revoked_at: string | null
+  created_at: string
+}
+
+export type AgentSetupKind = 'command' | 'guided'
+export type AgentSetupStepKind = 'command' | 'value' | 'link' | 'manual'
+
+export interface AgentSetupStep {
+  kind: AgentSetupStepKind
+  text: string
+  command: string
+  value: string
+  url: string
+}
+
+export interface AgentImplementation {
+  id: string
+  name: string
+  hardware: string
+  setup_kind: AgentSetupKind
+  docs_url: string
+}
+
+export interface AgentInstallation extends AgentImplementation {
+  setup_steps: AgentSetupStep[]
+}
+
+export interface DeviceEnrollment {
+  token: string
+  expires_at: string
+  server_url: string
+  server_version: string
+  implementations: AgentInstallation[]
+}
+
 export type ProfileDataType = 'uint8' | 'uint16' | 'uint32' | 'int8' | 'int16' | 'int32' | 'bytes' | 'boolean'
 export interface VehicleProfileSignal {
   name: string

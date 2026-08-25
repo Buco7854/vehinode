@@ -1,0 +1,13 @@
+# VehiNode agent manifest.
+#
+# Every top-level directory holding an `agent.toml` is an agent directory, and this file is
+# all it takes to appear in the Devices catalog. Shipping binaries from the hub is separate:
+# add a build stage to the Dockerfile whose output lands in the release directory.
+schema = 1
+
+[implementation]
+id = "vehinode.go"
+name = "VehiNode Go agent"
+hardware = "Raspberry Pi and other Linux boards (ARMv6, ARMv7, ARM64, AMD64)"
+setup_kind = "command"
+docs_url = "https://github.com/Buco7854/vehinode/blob/main/docs/agent/installation.md"

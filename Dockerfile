@@ -8,6 +8,8 @@ RUN --mount=type=cache,target=/root/.npm npm ci
 COPY frontend/ ./
 RUN npm run build
 
+# One build stage per agent that ships binaries. Its output is copied into the release
+# directory the runtime serves, which is all an agent needs to be installable from the hub.
 FROM golang:1.26.6-bookworm AS agent-build
 ARG VEHINODE_VERSION
 WORKDIR /src/agent
@@ -17,6 +19,19 @@ COPY agent/ ./
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     sh build-release.sh "$VEHINODE_VERSION" /out
+
+# Collects the manifest from every agent directory. Adding an agent needs no change here:
+# any top-level directory holding an agent.toml is picked up automatically. Only a Python
+# package reaches the wheel, so this is how an agent written in anything else is listed.
+FROM python:3.13.15-slim-bookworm AS agent-manifests
+WORKDIR /src
+COPY . .
+RUN mkdir -p /manifests \
+    && for manifest in */agent.toml; do \
+         [ -e "$manifest" ] || continue; \
+         mkdir -p "/manifests/$(dirname "$manifest")" \
+         && cp "$manifest" "/manifests/$manifest"; \
+       done
 
 FROM python:3.13.15-slim-bookworm AS wheel-build
 WORKDIR /src
@@ -50,6 +65,7 @@ RUN groupadd --system --gid 10001 vehinode \
 COPY --from=python-deps /install/ /usr/local/
 COPY --from=frontend-build /src/frontend/dist/ /app/frontend/dist/
 COPY --from=agent-build /out/ /opt/vehinode-agent-releases/${VEHINODE_VERSION}/
+COPY --from=agent-manifests /manifests/ /app/agent-manifests/
 COPY alembic.ini /app/alembic.ini
 COPY backend/migrations/ /app/backend/migrations/
 COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/vehinode-entrypoint

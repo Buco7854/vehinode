@@ -60,3 +60,9 @@ Raspberry Pi OS release before using the tracker with real credentials or outsid
 trusted test network.
 
 Never modify the command to install a branch or an unversioned “latest” build.
+
+The Go executable is the bundled implementation, not a server requirement. **Custom
+agent** exposes the server URL, one-time token, minimum enrollment fields and API
+reference for collectors written in another language or targeting other hardware. An
+agent needs no catalog entry or agent ID to enroll. See
+[Build a custom agent](../developers/custom-agents.md).

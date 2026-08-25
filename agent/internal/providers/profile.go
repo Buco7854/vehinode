@@ -21,24 +21,38 @@ func NewProfileProvider(adapter *OBDAdapter, decoder *profile.DecoderEngine) *Pr
 func (provider *ProfileProvider) ReadMetrics() (map[string]any, error) {
 	if !provider.connected {
 		if err := provider.adapter.Connect(); err != nil {
-			return copyMetrics(provider.metrics), nil
+			return observedMetrics(provider.metrics, nil), nil
 		}
 		if err := provider.adapter.SelectProtocol("6"); err != nil {
 			provider.adapter.Close()
-			return copyMetrics(provider.metrics), nil
+			return observedMetrics(provider.metrics, nil), nil
 		}
 		provider.connected = true
 	}
+	freshMovement := map[string]bool{}
 	err := provider.adapter.Monitor(time.Second, func(frame model.CANFrame) {
 		for _, decoded := range provider.decoder.Decode(frame, provider.metrics) {
 			provider.metrics[decoded.Name] = decoded.Value
+			if decoded.Name == "vehicle.speed" || decoded.Name == "vehicle.ready" || decoded.Name == "vehicle.ignition" {
+				freshMovement[decoded.Name] = true
+			}
 		}
 	})
 	if err != nil {
 		provider.adapter.Close()
 		provider.connected = false
 	}
-	return copyMetrics(provider.metrics), nil
+	return observedMetrics(provider.metrics, freshMovement), nil
+}
+
+func observedMetrics(source map[string]any, freshMovement map[string]bool) map[string]any {
+	result := copyMetrics(source)
+	for _, name := range []string{"vehicle.speed", "vehicle.ready", "vehicle.ignition"} {
+		if !freshMovement[name] {
+			delete(result, name)
+		}
+	}
+	return result
 }
 
 func (provider *ProfileProvider) Close() { provider.adapter.Close() }

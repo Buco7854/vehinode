@@ -11,9 +11,11 @@ import (
 
 func TestExplicitHTTPEnrollmentAndBatchTransport(t *testing.T) {
 	var authorization string
+	var enrollment enrollmentRequest
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
 		case "/api/v1/device/enroll":
+			json.NewDecoder(request.Body).Decode(&enrollment)
 			json.NewEncoder(response).Encode(map[string]any{"device_id": "device-1", "vehicle_id": "vehicle-1", "credential": "secret", "config": map[string]any{"version": 1, "sampling": map[string]any{"default_seconds": 5}, "upload": map[string]any{"default_seconds": 30}, "vehicle_profile": nil}})
 		case "/api/v1/device/telemetry/batch":
 			authorization = request.Header.Get("Authorization")
@@ -21,7 +23,7 @@ func TestExplicitHTTPEnrollmentAndBatchTransport(t *testing.T) {
 				Samples []model.Sample `json:"samples"`
 			}
 			json.NewDecoder(request.Body).Decode(&body)
-			json.NewEncoder(response).Encode(map[string]any{"accepted": []string{body.Samples[0].ID}, "duplicates": []string{}})
+			json.NewEncoder(response).Encode(map[string]any{"accepted": []string{body.Samples[0].ID}, "duplicates": []string{}, "config_version": 7})
 		}
 	}))
 	defer server.Close()
@@ -34,12 +36,15 @@ func TestExplicitHTTPEnrollmentAndBatchTransport(t *testing.T) {
 		t.Fatal(err)
 	}
 	sample := model.NewSample(1, nil, nil, nil)
-	accepted, err := api.Upload(model.NewUUID(), []model.Sample{sample})
+	result, err := api.Upload(model.NewUUID(), []model.Sample{sample})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(accepted) != 1 || accepted[0] != sample.ID || authorization != "Device secret" {
-		t.Fatalf("unexpected upload: %#v %q", accepted, authorization)
+	if enrollment.AgentVersion != "test" || enrollment.Token != "one-time-token-value" {
+		t.Fatalf("unexpected enrollment metadata: %#v", enrollment)
+	}
+	if len(result.Acknowledged) != 1 || result.Acknowledged[0] != sample.ID || result.ConfigVersion != 7 || authorization != "Device secret" {
+		t.Fatalf("unexpected upload: %#v %q", result, authorization)
 	}
 }
 

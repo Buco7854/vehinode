@@ -2,6 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import i18n from '../src/i18n'
 import AppSelect from '../src/components/AppSelect.vue'
+import TelemetryPolicyPicker from '../src/components/TelemetryPolicyPicker.vue'
 import VehicleProfileEditor from '../src/components/VehicleProfileEditor.vue'
 import DashboardsView from '../src/views/DashboardsView.vue'
 import DevicesView from '../src/views/DevicesView.vue'
@@ -16,6 +17,10 @@ vi.mock('gridstack', () => ({
     })),
   },
 }))
+
+const GO_AGENT = { id:'vehinode.go', name:'VehiNode Go agent', hardware:'Raspberry Pi and other Linux boards', setup_kind:'command', docs_url:'https://vehinode.test/agent' }
+const FIRMWARE_AGENT = { id:'community.esp32', name:'Community ESP32 firmware', hardware:'ESP32 with a GPS module', setup_kind:'guided', docs_url:'https://esp32.test/docs' }
+const commandStep = (command: string) => ({ kind:'command', text:'', command, value:'', url:'' })
 
 describe('vehicle and dashboard management', () => {
   beforeEach(() => { i18n.global.locale.value = 'en' })
@@ -42,22 +47,25 @@ describe('vehicle and dashboard management', () => {
 
   it('shows stale device status from the server freshness calculation', async () => {
     vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
+      if (url.endsWith('/agent-implementations')) return Promise.resolve(jsonResponse([GO_AGENT]))
       if (url.endsWith('/devices')) return Promise.resolve(jsonResponse([{
-        id:'d1',vehicle_id:vehicle.id,name:'Pi Zero',credential_version:1,agent_version:'0.1.0',hostname:'car',hardware:{},online:false,last_seen_at:'2026-01-01T00:00:00Z',revoked_at:null,created_at:'2026-01-01T00:00:00Z',
+        id:'d1',vehicle_id:vehicle.id,name:'Pi Zero',credential_version:1,agent_version:'1.1.0',version_compatibility:'incompatible',hostname:'car',hardware:{},online:false,last_seen_at:'2026-01-01T00:00:00Z',last_config_sync_at:null,config_version:1,telemetry_policy:{sampling_seconds:120,upload_seconds:120,parked_sampling_seconds:900,parked_upload_seconds:900},revoked_at:null,created_at:'2026-01-01T00:00:00Z',
       }]))
       return Promise.resolve(jsonResponse([vehicle]))
     }))
-    const wrapper = mount(DevicesView, { global:{plugins:[i18n]} })
+    const wrapper = mount(DevicesView, { global:{plugins:[i18n],stubs:{Teleport:true}} })
     await flushPromises()
     expect(wrapper.text()).toContain('Pi Zero')
     expect(wrapper.text()).toContain('Parked / stale')
+    expect(wrapper.text()).toContain('Major incompatible')
   })
 
   it('shows newly created vehicles in the tracker enrollment selector', async () => {
     const fetchMock = vi.fn().mockImplementation((url: string, options?: RequestInit) => {
+      if (url.endsWith('/agent-implementations')) return Promise.resolve(jsonResponse([GO_AGENT]))
       if (url.endsWith('/devices')) return Promise.resolve(jsonResponse([]))
       if (url.endsWith(`/vehicles/${vehicle.id}/enrollments`) && options?.method === 'POST') {
-        return Promise.resolve(jsonResponse({ install_command:'install tracker' }, 201))
+        return Promise.resolve(jsonResponse({ token:'venroll_test',expires_at:'2026-08-25T01:00:00Z',server_url:'https://cars.example',server_version:'0.1.0',implementations:[{ ...GO_AGENT, setup_steps:[commandStep('install tracker')] }] }, 201))
       }
       return Promise.resolve(jsonResponse([vehicle]))
     })
@@ -67,10 +75,121 @@ describe('vehicle and dashboard management', () => {
 
     await wrapper.get('.page-header .button').trigger('click')
     expect(wrapper.get('[role="combobox"]').text()).toContain('Éclair')
+    const implementation = wrapper.findAllComponents(AppSelect)[1]!
+    expect(implementation.props('modelValue')).toBe('vehinode.go')
+    implementation.vm.$emit('update:modelValue', 'custom')
+    await flushPromises()
+    const preset = wrapper.findAllComponents(AppSelect)[2]!
+    expect(preset.props('modelValue')).toBe('dataSaver')
+    expect(wrapper.findAll('.interval-fields input[type="number"]')).toHaveLength(2)
+    await wrapper.findAll('.interval-fields input[type="number"]')[0]!.setValue(0)
+    expect(wrapper.get('.enrollment-submit').attributes('disabled')).toBeDefined()
+    wrapper.getComponent(TelemetryPolicyPicker).vm.$emit('update:modelValue', {sampling_seconds:30,upload_seconds:30,parked_sampling_seconds:900,parked_upload_seconds:900})
+    await flushPromises()
+    expect((wrapper.findAll('.interval-fields input[type="number"]')[0]!.element as HTMLInputElement).value).toBe('30')
     await wrapper.get('.enrollment-panel').trigger('submit')
     await flushPromises()
 
-    expect(fetchMock.mock.calls.some((call) => call[0].endsWith(`/vehicles/${vehicle.id}/enrollments`) && call[1]?.method === 'POST')).toBe(true)
+    const enrollmentCall = fetchMock.mock.calls.find((call) => call[0].endsWith(`/vehicles/${vehicle.id}/enrollments`) && call[1]?.method === 'POST')
+    expect(enrollmentCall).toBeTruthy()
+    expect(JSON.parse(enrollmentCall?.[1]?.body as string).telemetry_policy).toEqual({sampling_seconds:30,upload_seconds:30,parked_sampling_seconds:900,parked_upload_seconds:900})
+    expect(wrapper.get('[role="dialog"]').attributes('aria-label')).toBe('Enrollment ready')
+    const customDetails = wrapper.get('.custom-connection').text()
+    expect(customDetails).toContain('https://cars.example')
+    expect(customDetails).toContain('venroll_test')
+    expect(customDetails).toContain('POST /api/v1/device/enroll')
+    expect(customDetails).toContain('token + agent_version')
+    expect(wrapper.find('.command-reveal pre').exists()).toBe(false)
+  })
+
+  it('reveals one copyable command for an agent installed from a shell', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, options?: RequestInit) => {
+      if (url.endsWith('/agent-implementations')) return Promise.resolve(jsonResponse([GO_AGENT]))
+      if (url.endsWith('/devices')) return Promise.resolve(jsonResponse([]))
+      if (url.endsWith(`/vehicles/${vehicle.id}/enrollments`) && options?.method === 'POST') {
+        return Promise.resolve(jsonResponse({ token:'venroll_test',expires_at:'2026-08-25T01:00:00Z',server_url:'https://cars.example',server_version:'0.1.0',implementations:[{ ...GO_AGENT, setup_steps:[commandStep('curl -fsSL https://cars.example/install-agent')] }] }, 201))
+      }
+      return Promise.resolve(jsonResponse([vehicle]))
+    }))
+    const wrapper = mount(DevicesView, { global:{plugins:[i18n],stubs:{Teleport:true}} })
+    await flushPromises()
+
+    await wrapper.get('.page-header .button').trigger('click')
+    expect(wrapper.get('.implementation-picker').text()).toContain('Setup: one command on the tracker')
+    await wrapper.get('.enrollment-panel').trigger('submit')
+    await flushPromises()
+
+    const steps = wrapper.findAll('.setup-steps li')
+    expect(steps).toHaveLength(1)
+    expect(steps[0]!.get('pre').text()).toContain('curl -fsSL https://cars.example/install-agent')
+    expect(steps[0]!.text()).toContain('Run this one-time command')
+    expect(wrapper.find('.custom-connection').exists()).toBe(false)
+  })
+
+  it('guides setup for a catalog agent that no shell command can install', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, options?: RequestInit) => {
+      if (url.endsWith('/agent-implementations')) return Promise.resolve(jsonResponse([GO_AGENT, FIRMWARE_AGENT]))
+      if (url.endsWith('/devices')) return Promise.resolve(jsonResponse([]))
+      if (url.endsWith(`/vehicles/${vehicle.id}/enrollments`) && options?.method === 'POST') {
+        return Promise.resolve(jsonResponse({ token:'venroll_test',expires_at:'2026-08-25T01:00:00Z',server_url:'https://cars.example',server_version:'0.1.0',implementations:[
+          { ...GO_AGENT, setup_steps:[commandStep('install tracker')] },
+          { ...FIRMWARE_AGENT, setup_steps:[
+            { kind:'link', text:'Flash the firmware with the web installer', command:'', value:'', url:'https://esp32.test/flash' },
+            { kind:'manual', text:'Join the VehiNode-Setup access point', command:'', value:'', url:'' },
+            { kind:'value', text:'Server URL', command:'', value:'https://cars.example', url:'' },
+            { kind:'value', text:'Enrollment token', command:'', value:'venroll_test', url:'' },
+          ] },
+        ] }, 201))
+      }
+      return Promise.resolve(jsonResponse([vehicle]))
+    }))
+    const wrapper = mount(DevicesView, { global:{plugins:[i18n],stubs:{Teleport:true}} })
+    await flushPromises()
+
+    await wrapper.get('.page-header .button').trigger('click')
+    expect(wrapper.get('.implementation-picker').text()).toContain('Raspberry Pi and other Linux boards')
+    wrapper.findAllComponents(AppSelect)[1]!.vm.$emit('update:modelValue', 'community.esp32')
+    await flushPromises()
+    expect(wrapper.get('.implementation-picker').text()).toContain('ESP32 with a GPS module')
+    expect(wrapper.get('.implementation-picker').text()).toContain('Setup: guided steps')
+    await wrapper.get('.enrollment-panel').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.get('.command-reveal').text()).toContain('Setup for Community ESP32 firmware')
+    const steps = wrapper.findAll('.setup-steps li')
+    expect(steps).toHaveLength(4)
+    expect(wrapper.find('.setup-steps pre').exists()).toBe(false)
+    expect(steps[0]!.get('a').attributes('href')).toBe('https://esp32.test/flash')
+    expect(steps[0]!.text()).toContain('Flash the firmware with the web installer')
+    expect(steps[1]!.text()).toContain('Join the VehiNode-Setup access point')
+    expect(steps[3]!.text()).toContain('venroll_test')
+    expect(wrapper.get('.setup-docs a').attributes('href')).toBe('https://esp32.test/docs')
+  })
+
+  it('reconfigures an enrolled tracker from a preset', async () => {
+    const tracker = {
+      id:'d1',vehicle_id:vehicle.id,name:'Pi Zero',credential_version:1,agent_version:'0.1.9',version_compatibility:'compatible',hostname:'car',hardware:{},online:true,last_seen_at:'2026-08-25T00:00:00Z',last_config_sync_at:null,config_version:1,telemetry_policy:{sampling_seconds:120,upload_seconds:120,parked_sampling_seconds:900,parked_upload_seconds:900},revoked_at:null,created_at:'2026-01-01T00:00:00Z',
+    }
+    const fetchMock = vi.fn().mockImplementation((url: string, options?: RequestInit) => {
+      if (url.endsWith('/agent-implementations')) return Promise.resolve(jsonResponse([GO_AGENT]))
+      if (url.endsWith('/devices/d1/telemetry-policy') && options?.method === 'PUT') return Promise.resolve(jsonResponse({sampling_seconds:1,upload_seconds:1,parked_sampling_seconds:900,parked_upload_seconds:900}))
+      if (url.endsWith('/devices')) return Promise.resolve(jsonResponse([tracker]))
+      return Promise.resolve(jsonResponse([vehicle]))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(DevicesView, { global:{plugins:[i18n],stubs:{Teleport:true}} })
+    await flushPromises()
+
+    await wrapper.get('.device-row footer .button').trigger('click')
+    expect(wrapper.get('[role="dialog"]').text()).toContain('Configure Pi Zero')
+    wrapper.getComponent(TelemetryPolicyPicker).vm.$emit('update:modelValue', {sampling_seconds:1,upload_seconds:1,parked_sampling_seconds:900,parked_upload_seconds:900})
+    await flushPromises()
+    await wrapper.get('.policy-form').trigger('submit')
+    await flushPromises()
+
+    const updateCall = fetchMock.mock.calls.find((call) => call[0].endsWith('/devices/d1/telemetry-policy') && call[1]?.method === 'PUT')
+    expect(JSON.parse(updateCall?.[1]?.body as string)).toEqual({sampling_seconds:1,upload_seconds:1,parked_sampling_seconds:900,parked_upload_seconds:900})
+    expect(wrapper.text()).toContain('Telemetry policy saved for Pi Zero.')
   })
 
   it('filters the vehicle catalog by search and live status locally', async () => {

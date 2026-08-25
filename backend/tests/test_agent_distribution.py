@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.app.devices import services
+from backend.app.devices import protocol
 
 
 def test_standalone_agent_installer_is_distributed(client: TestClient) -> None:
@@ -25,13 +25,15 @@ def test_http_install_command_requires_explicit_insecure_opt_in(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        services,
+        protocol,
         "get_settings",
         lambda: SimpleNamespace(public_url="http://192.168.1.151:8000"),
     )
 
-    command = services.install_command("secret token")
+    steps = protocol.registered_agent_installations("secret token")[0]["setup_steps"]
 
+    assert len(steps) == 1
+    command = steps[0]["command"]
     assert "--allow-insecure-http" in command
     assert "'secret token'" in command
 

@@ -3,8 +3,8 @@ import { expect, test, type Page } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 
 interface VehicleRecord { id: string; name: string }
-interface Enrollment { token: string }
-interface EnrolledDevice { device_id: string; credential: string }
+interface Enrollment { token: string; server_url: string; server_version: string }
+interface EnrolledDevice { device_id: string; credential: string; config: { sampling: { default_seconds: number; parked_seconds: number }; upload: { default_seconds: number; parked_seconds: number } } }
 interface HookRecord { id: string }
 interface HookExecution { status: string; logs: Array<Record<string, unknown>> }
 
@@ -118,20 +118,52 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
 
   await page.getByRole('link', { name: 'Devices' }).click()
   await page.getByRole('button', { name: 'Add tracker' }).click()
+  const enrollmentDialog = page.getByRole('dialog', { name:'Enroll a tracker' })
+  const implementationSelect = enrollmentDialog.getByLabel('Agent implementation')
+  await expect(implementationSelect).toContainText('VehiNode Go agent')
+  await expect(enrollmentDialog.locator('.implementation-picker')).toContainText('Raspberry Pi')
+  const presetSelect = enrollmentDialog.getByLabel('Preset')
+  await expect(presetSelect).toContainText('Data saver')
+  await presetSelect.focus()
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('Enter')
+  await expect(presetSelect).toContainText('Balanced')
+  await expect(enrollmentDialog.getByLabel('Driving interval (seconds)')).toHaveValue('30')
+  await expect(enrollmentDialog.getByLabel('Parked interval (seconds)')).toHaveValue('900')
+  await page.setViewportSize({ width:390, height:844 })
+  const enrollmentDimensions = await enrollmentDialog.evaluate((dialog) => ({ scroll:dialog.scrollWidth, width:dialog.clientWidth }))
+  expect(enrollmentDimensions.scroll).toBeLessThanOrEqual(enrollmentDimensions.width)
+  const enrollmentAccessibility = await new AxeBuilder({ page }).include('.app-modal').analyze()
+  expect(enrollmentAccessibility.violations).toEqual([])
+  await page.setViewportSize({ width:1440, height:1000 })
   const enrollmentResponse = page.waitForResponse((response) => response.url().includes('/enrollments') && response.request().method() === 'POST')
-  await page.locator('.enrollment-panel').getByRole('button', { name: 'Add tracker' }).click()
+  await page.locator('.enrollment-panel').getByRole('button', { name: 'Create enrollment' }).click()
   const enrollment = await (await enrollmentResponse).json() as Enrollment
-  await expect(page.locator('.enrollment-panel pre')).toContainText('--token')
+  const readyDialog = page.getByRole('dialog', { name:'Enrollment ready' })
+  await expect(readyDialog.locator('.setup-steps li')).toHaveCount(1)
+  await expect(readyDialog.locator('pre')).toContainText('--token')
+  await expect(readyDialog).toContainText('Setup for VehiNode Go agent')
+  await page.setViewportSize({ width:390, height:844 })
+  const readyDimensions = await readyDialog.evaluate((dialog) => ({ scroll:dialog.scrollWidth, width:dialog.clientWidth }))
+  expect(readyDimensions.scroll).toBeLessThanOrEqual(readyDimensions.width)
+  const readyAccessibility = await new AxeBuilder({ page }).include('.app-modal').analyze()
+  expect(readyAccessibility.violations).toEqual([])
+  await page.setViewportSize({ width:1440, height:1000 })
   const copyCommand = page.getByRole('button', { name: 'Copy command' })
   await expect(copyCommand).toBeVisible()
   await expect(copyCommand).toHaveText('')
-  await page.getByRole('dialog', { name:'Enroll a tracker' }).getByRole('button', { name:'Close' }).click()
+  await readyDialog.getByRole('button', { name:'Done' }).click()
 
   const enrolledResponse = await request.post('/api/v1/device/enroll', {
-    data: { token: enrollment.token, agent_version: 'e2e-1.0.0', hostname: 'browser-simulator', hardware: { model: 'simulated-pi-zero' } },
+    data: { token: enrollment.token, agent_version: '0.2.0' },
   })
   expect(enrolledResponse.status()).toBe(201)
   const enrolled = await enrolledResponse.json() as EnrolledDevice
+  expect(enrolled.config.sampling.default_seconds).toBe(30)
+  expect(enrolled.config.sampling.parked_seconds).toBe(900)
+  expect(enrolled.config.upload.default_seconds).toBe(30)
+  expect(enrolled.config.upload.parked_seconds).toBe(900)
   const isolatedHumanRequest = await request.get('/api/v1/auth/me', { headers: { Authorization: `Device ${enrolled.credential}` } })
   expect(isolatedHumanRequest.status()).toBe(401)
 
@@ -156,6 +188,9 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
   })
   expect(retriedBatch.status()).toBe(200)
   expect((await retriedBatch.json()).duplicates).toHaveLength(6)
+
+  await page.reload()
+  await expect(page.locator('.version-pill.warning')).toHaveText('Minor differs')
 
   await page.locator('.sidebar').getByRole('link', { name: 'Dashboards', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible()
@@ -258,7 +293,21 @@ test('complete browser journey from bootstrapped admin to persistent hook state'
 
   await page.getByRole('link', { name: 'Devices' }).click()
   await expect(page.getByRole('heading', { name: 'Vehicle tracker' })).toBeVisible()
-  await expect(page.getByText('e2e-1.0.0')).toBeVisible()
+  await expect(page.getByText('0.2.0')).toBeVisible()
+  const trackerRow = page.locator('.device-row', { hasText:'Vehicle tracker' })
+  await trackerRow.getByRole('button', { name:'Configure' }).click()
+  const configurationDialog = page.getByRole('dialog', { name:'Configure Vehicle tracker' })
+  await expect(configurationDialog.getByLabel('Driving interval (seconds)')).toHaveValue('30')
+  await expect(configurationDialog.getByLabel('Parked interval (seconds)')).toHaveValue('900')
+  const configurationAccessibility = await new AxeBuilder({ page }).include('.app-modal').analyze()
+  expect(configurationAccessibility.violations).toEqual([])
+  await configurationDialog.getByLabel('Preset').click()
+  await page.getByRole('option', { name:'Light live' }).click()
+  const configurationResponse = page.waitForResponse((response) => response.url().includes('/telemetry-policy') && response.request().method() === 'PUT')
+  await configurationDialog.getByRole('button', { name:'Save', exact:true }).click()
+  await configurationResponse
+  await expect(page.getByText('Telemetry policy saved for Vehicle tracker.')).toBeVisible()
+  await expect(trackerRow).toContainText('Driving: 5 s; parked: 15 min')
 
   await page.setViewportSize({ width: 375, height: 812 })
   await page.locator('.sidebar').getByRole('link', { name: 'Dashboards', exact: true }).click()

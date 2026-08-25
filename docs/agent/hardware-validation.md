@@ -14,6 +14,9 @@ parser and pseudo-serial tests do not constitute hardware validation.
 | C-Zero battery SOC (`0x374`) | Experimental | Passing synthetic fixture | Pending real CAN comparison |
 | C-Zero pack voltage/current (`0x373`) | Experimental | Passing synthetic fixture | Pending real CAN comparison |
 | C-Zero speed/odometer (`0x412`) | Experimental | Passing synthetic fixture | Pending real CAN comparison |
+| C-Zero READY/motor/range (`0x101`, `0x298`, `0x346`) | Unknown | Passing synthetic fixtures | Pending real CAN comparison |
+| C-Zero charge/cell/environment (`0x286`, `0x373`, `0x374`, `0x389`) | Unknown/experimental | Passing synthetic fixtures | Pending real CAN comparison |
+| C-Zero body/warnings/TPMS (`0x384`, `0x3D3`, `0x424`) | Unknown | Passing synthetic fixtures | Pending real CAN comparison |
 | Standalone Linux ARMv6 build | Complete | Cross-build and unit tests passing | Pending Pi Zero W |
 | Installer on Raspberry Pi OS ARMv6 | Complete | Shell syntax and artifact contract passing | Pending Pi Zero W |
 

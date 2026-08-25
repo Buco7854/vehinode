@@ -37,6 +37,12 @@
 - [x] Installer and systemd unit
 - [x] SQLite queue, retry/catch-up and HTTP batch transport
 - [x] Versioned last-known-good configuration
+- [x] Hub-owned tracker cadence presets and explicit driving/parked interval fields
+- [x] Profile/CAN/GPS-aware driving state with grace period and parked heartbeat cadence
+- [x] Community-extensible agent catalog plus minimal custom-agent enrollment path
+- [x] Hardware-aware catalog entries with per-agent setup steps beyond a shell command
+- [x] Single-file agent manifests and a release directory served as the image builds it
+- [x] SemVer compatibility policy with refused major and warned minor differences
 - [x] CLI diagnostics and simulated providers
 - [x] Persistent host-local GPS/OBD selection and confirmation-gated full uninstall
 - [x] Standalone CGO-free Go executable for ARMv6, ARMv7, ARM64 and AMD64
@@ -49,6 +55,7 @@
 - [x] OBDLink SX/STN adapter, standard OBD and reconnection
 - [x] Portable CAN capture and offline replay
 - [x] Safe declarative profile decoder and experimental C-Zero profile
+- [x] Expanded C-Zero READY, charge, motor, body, warning and TPMS mappings with fixtures
 - [x] Owner-created profile CRUD, assignment and versioned agent distribution
 - [x] Dedicated profiles page with distinct profile/signal modals and no proof-level UX
 - [x] Accurate hardware validation ledger

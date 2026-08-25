@@ -37,13 +37,20 @@ def test_can_frame_parsing_capture_and_replay(tmp_path: Path) -> None:
 def test_experimental_c_zero_profile_decodes_documented_starting_points() -> None:
     decoder = VehicleProfileDecoder.from_path(profile_path())
     soc = decoder.decode(CANFrame(1, 0x374, bytes.fromhex("9600000000000000")))
-    assert {value.name: value.value for value in soc}["battery.soc"] == 70
-    assert all(value.status == "experimental" for value in soc)
+    soc_by_name = {value.name: value for value in soc}
+    assert soc_by_name["battery.soc"].value == 70
+    assert soc_by_name["battery.soc"].status == "experimental"
+    assert soc_by_name["battery.soc_secondary"].status == "unknown"
 
     battery = decoder.decode(CANFrame(2, 0x373, bytes.fromhex("000080640CE40000")))
     values = {value.name: value.value for value in battery}
-    assert values["battery.current"] == pytest.approx(-1.0)
+    assert values["battery.current"] == pytest.approx(1.0)
     assert values["battery.pack_voltage"] == pytest.approx(330.0)
+
+    ready = decoder.decode(CANFrame(3, 0x101, bytes.fromhex("0400000000000000")))
+    ready_values = {value.name: value.value for value in ready}
+    assert ready_values["vehicle.ready"] is True
+    assert ready_values["vehicle.operating_state"] == "ready"
 
 
 def test_standard_obd_parsing() -> None:

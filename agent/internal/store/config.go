@@ -18,10 +18,11 @@ type Configuration struct {
 
 type Interval struct {
 	DefaultSeconds int `json:"default_seconds"`
+	ParkedSeconds  int `json:"parked_seconds,omitempty"`
 }
 
 func (configuration Configuration) Validate() error {
-	if configuration.Version < 1 || configuration.Sampling.DefaultSeconds < 1 || configuration.Sampling.DefaultSeconds > 86400 || configuration.Upload.DefaultSeconds < 1 || configuration.Upload.DefaultSeconds > 86400 {
+	if configuration.Version < 1 || !configuration.Sampling.valid() || !configuration.Upload.valid() {
 		return fmt.Errorf("remote configuration values are outside safe bounds")
 	}
 	if len(configuration.VehicleProfileDefinition) > 0 && string(configuration.VehicleProfileDefinition) != "null" {
@@ -39,6 +40,18 @@ func (configuration Configuration) Validate() error {
 		return fmt.Errorf("vehicle profile reference has no definition")
 	}
 	return nil
+}
+
+func (interval Interval) valid() bool {
+	return interval.DefaultSeconds >= 1 && interval.DefaultSeconds <= 86400 &&
+		interval.ParkedSeconds >= 0 && interval.ParkedSeconds <= 86400
+}
+
+func (interval Interval) EffectiveParkedSeconds() int {
+	if interval.ParkedSeconds > 0 {
+		return interval.ParkedSeconds
+	}
+	return interval.DefaultSeconds
 }
 
 type ConfigurationStore struct{ Path string }

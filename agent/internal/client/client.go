@@ -30,6 +30,11 @@ type EnrollmentResponse struct {
 	Config     store.Configuration `json:"config"`
 }
 
+type UploadResponse struct {
+	Acknowledged  []string
+	ConfigVersion int
+}
+
 type enrollmentRequest struct {
 	Token        string         `json:"token"`
 	AgentVersion string         `json:"agent_version"`
@@ -96,19 +101,23 @@ func (client *Client) FetchConfiguration() (store.Configuration, error) {
 	return configuration, nil
 }
 
-func (client *Client) Upload(bootID string, samples []model.Sample) ([]string, error) {
+func (client *Client) Upload(bootID string, samples []model.Sample) (UploadResponse, error) {
 	payload := struct {
 		BootID  string         `json:"boot_id"`
 		Samples []model.Sample `json:"samples"`
 	}{BootID: bootID, Samples: samples}
 	var response struct {
-		Accepted   []string `json:"accepted"`
-		Duplicates []string `json:"duplicates"`
+		Accepted      []string `json:"accepted"`
+		Duplicates    []string `json:"duplicates"`
+		ConfigVersion int      `json:"config_version"`
 	}
 	if err := client.request(http.MethodPost, "/api/v1/device/telemetry/batch", payload, &response, true); err != nil {
-		return nil, fmt.Errorf("telemetry upload failed: %w", err)
+		return UploadResponse{}, fmt.Errorf("telemetry upload failed: %w", err)
 	}
-	return append(response.Accepted, response.Duplicates...), nil
+	return UploadResponse{
+		Acknowledged:  append(response.Accepted, response.Duplicates...),
+		ConfigVersion: response.ConfigVersion,
+	}, nil
 }
 
 func (client *Client) Download(path string, authenticated bool) ([]byte, error) {

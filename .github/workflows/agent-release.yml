@@ -11,7 +11,9 @@ jobs:
   quality:
     uses: ./.github/workflows/ci.yml
 
-  binaries:
+  # One job per agent that publishes binaries. An agent added later gets its own job here,
+  # built the same way its Dockerfile stage builds it.
+  go-agent:
     needs: quality
     runs-on: ubuntu-latest
     permissions:
@@ -22,13 +24,11 @@ jobs:
         with:
           go-version-file: agent/go.mod
           cache-dependency-path: agent/go.sum
-      - name: Test and build release matrix
+      - name: Build the release matrix
+        working-directory: agent
         run: |
           VERSION=${GITHUB_REF_NAME#v}
-          cd agent
-          go test ./...
-          go vet ./...
-          sh build-release.sh "$VERSION"
+          sh build-release.sh "$VERSION" dist
           test -f "dist/vehinode-agent-${VERSION}-linux-armv6"
       - name: Upload to release
         env:

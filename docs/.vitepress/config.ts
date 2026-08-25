@@ -56,6 +56,17 @@ export default defineConfig({
         ],
       },
       {
+        text: 'Develop',
+        collapsed: true,
+        items: [
+          { text: 'Custom agents', link: '/developers/custom-agents' },
+          { text: 'Vehicle profiles', link: '/developers/vehicle-profiles' },
+          { text: 'Telemetry ingestion', link: '/developers/telemetry' },
+          { text: 'Hook runtime', link: '/developers/hook-runtime' },
+          { text: 'Definition of done', link: '/developers/definition-of-done' },
+        ],
+      },
+      {
         text: 'Hook recipes',
         collapsed: true,
         items: [

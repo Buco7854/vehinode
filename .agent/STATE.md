@@ -59,6 +59,39 @@ Updated: 2026-08-25
   Owners can create declarative profiles in the SPA; definitions are owner-scoped,
   server-validated, versioned with assigned devices, and validated again by the agent
   before replacing last-known-good configuration. Built-in profiles remain read-only.
+  Tracker enrollment persists a hub-owned driving/parked policy with data-saver,
+  balanced, light-live and live presets plus directly editable driving and parked
+  interval fields. Sampling and upload always use the same interval in each state; the
+  built-in presets use a fifteen-minute parked heartbeat. The agent
+  observes motion evidence every second without durably queuing every observation:
+  freshly decoded canonical READY/ignition and CAN speed take precedence, GPS is the
+  fallback, and zero speed receives a five-minute grace period. Owners can reconfigure
+  enrolled trackers; changes increment the device configuration version. The Go agent
+  learns that version from telemetry acknowledgements and fetches full configuration only
+  on change, with a six-hour fallback sync for metered connections.
+  Reviewed community agents can be added through a server-owned setup catalog that the SPA
+  renders dynamically. Every top-level directory holding an `agent.toml` manifest is an
+  agent directory, and that one file is the whole change: catalog identity, the hardware it
+  runs on, and ordered setup steps—a copyable command, a copyable value, a link or
+  instruction text. An implementation that is flashed and provisioned on the device is
+  presented as correctly as the bundled Go agent's single command, and needs no server,
+  frontend or image change; server code is needed only when steps require conditional logic.
+  A generic image stage collects every manifest, so an agent written in any language is
+  listed even though only a Python package reaches the wheel. The Devices page shows the
+  hardware and whether setup is one command or guided steps before a token is spent.
+  Shipping binaries from the hub is separate and needs no manifest metadata: a build stage
+  in the Dockerfile writes artifacts into `/opt/vehinode-agent-releases/<version>/`, and
+  everything in that directory is served from `GET /agent/releases/<version>/<filename>`,
+  bounded so neither path segment can leave the directory.
+  An unreleased custom agent instead receives the server URL,
+  one-time token, minimum `token` + `agent_version` enrollment fields and OpenAPI reference;
+  there is no wire-level agent ID or protocol-version field. Compatibility is derived from
+  SemVer: patch differences are silent, minor differences are accepted with an orange
+  warning, major differences are red and refused before consuming the token, and invalid
+  SemVer is accepted with an orange unknown-compatibility warning.
+  The C-Zero profile now covers 36 passive signals, including the supplied battery/cell,
+  charge, READY, motor, range, body, warning and per-wheel pressure/temperature mappings;
+  each formula has a synthetic fixture. Active diagnostic requests remain excluded.
 - Production artifacts include a non-root multi-stage image, three-service Compose,
   CI/Pages/GHCR/release workflows, operator-focused VitePress docs and backup/restore
   scripts. A deployed server needs only the image-based Compose file and its private
@@ -71,11 +104,12 @@ Updated: 2026-08-25
 
 ## Verification
 
-- Ruff and Ruff format pass across backend/agent; mypy passes for 105 source files in Linux.
+- Ruff and Ruff format pass across backend/agent; mypy passes for 109 source files in Linux.
 - Backend/agent tests runnable without PostgreSQL pass on Linux, including vehicle photo
   validation/storage/ownership coverage and the complete
-  simulator-to-hook E2E scenario plus custom-profile distribution and ownership.
-- Frontend: ESLint and strict type check passing; 6 files / 27 behavior tests passing;
+  simulator-to-hook E2E scenario, custom-profile distribution and ownership, minimum
+  custom-agent enrollment, SemVer compatibility and idempotent custom-agent upload retry.
+- Frontend: ESLint and strict type check passing; 6 files / 28 behavior tests passing;
   production build passing.
 - Playwright: 2 Chromium scenarios passing locally against a fresh migrated database,
   real API and worker. CI runs the same suite on PostgreSQL. They cover the primary
@@ -87,6 +121,11 @@ Updated: 2026-08-25
   and automated axe checks. The
   expanded stale-vehicle check found and fixed a light-theme status contrast defect. The
   composed dashboard selector also passes axe after correcting its grouped-button semantics.
+  Tracker configuration passes keyboard preset selection, narrow-dialog reflow and axe,
+  including the four presets and directly editable driving/parked interval fields. The
+  custom-agent enrollment facts pass keyboard selection, desktop/mobile reflow and axe;
+  rendered checks also corrected low-contrast labels and removed a duplicate banner
+  landmark from the shared modal shell.
 - The Go agent passes format, vet, unit tests and CGO-free cross-builds for all four
   release targets. Every packaged artifact has a matching verified SHA-256 checksum and
   the Linux AMD64 executable runs from the production image.
@@ -96,7 +135,9 @@ Updated: 2026-08-25
 - The committed lockfiles install from a fresh checkout and `scripts/check.sh` resolves
   the checkout directly; no prior editable installation is required for validation.
 - The production image builds on Docker Desktop. Compose is running against PostgreSQL
-  with migration `91c5e8a3f204` at head; app/PostgreSQL are healthy and the worker uses
+  with migration `91c5e8a3f204` from the prior image; local migration `d4e5f6a7b8c9`
+  passes upgrade/check/downgrade and awaits the next image deployment. App/PostgreSQL are
+  healthy and the worker uses
   its role-appropriate no-HTTP health policy. The packaged image serves the bootstrap and
   all four standalone agent targets; lifecycle operations live in the executable. The
   browser suite passes against a disposable Linux image/SQLite app and worker. GitHub
@@ -111,7 +152,8 @@ Updated: 2026-08-25
 ## Hardware validation
 
 - No hardware behavior is claimed physically verified. SIM7600, OBDLink and C-Zero
-  paths are implementation/fixture-tested only; all C-Zero signals remain experimental.
+  paths are implementation/fixture-tested only; C-Zero signals remain experimental or
+  unknown according to their source evidence.
   See `docs/agent/hardware-validation.md`.
 
 ## Exact next action

@@ -4,7 +4,24 @@ family: imiev
 version: 1
 description: >-
   Community-documented CAN mappings for compatible vehicles and capture hardware.
+source_notes:
+  - Additional 0x101, 0x298, 0x346, 0x384, 0x3D3 and 0x424 mappings were
+    transcribed into declarative decoders from an operator-supplied PHP monitor on
+    2026-08-25. No executable PHP code is included or run by VehiNode.
 signals:
+  - name: vehicle.ready
+    display_name: Ready to drive
+    description: Bit 2 of byte B0 from CAN 0x101; the supplied monitor reports 4 as ready and 0 as charging.
+    source: {type: can, can_id: 0x101}
+    decoder: {byte_offset: 0, data_type: boolean, bit: 2}
+    status: unknown
+    notes: Used as authoritative parked/driving evidence when freshly observed.
+  - name: vehicle.operating_state
+    display_name: Vehicle operating state
+    description: Byte B0 from CAN 0x101; the supplied monitor reports 4 as ready and 0 as charging.
+    source: {type: can, can_id: 0x101}
+    decoder: {byte_offset: 0, data_type: uint8, enum: {"0": charging, "4": ready}}
+    status: unknown
   - name: battery.soc
     display_name: Battery state of charge
     description: Community formula using byte D0 from CAN 0x374.
@@ -19,15 +36,17 @@ signals:
     notes: Physical C-Zero validation pending.
   - name: battery.current
     display_name: Battery pack current
-    description: Positive/negative direction follows the community formula and needs validation.
+    description: Operator-supplied amps-into-pack formula; positive is charging and negative is discharge.
     source: {type: can, can_id: 0x373}
-    decoder: {byte_offset: 2, data_type: uint16, scale: -0.01, offset: 327.68}
+    decoder: {byte_offset: 2, data_type: uint16, scale: 0.01, offset: -327.68}
     unit: A
     minimum: -500
     maximum: 500
     status: experimental
     references:
+      - https://myimiev.com/threads/battery-capacity-and-computed-soc-obdzero-bmu-pid-762.5222/
       - https://myimiev.com/threads/decyphering-imiev-and-ion-car-can-message-data.763/
+    notes: Uses the uncalibrated 32768 zero-current midpoint from the supplied PHP.
   - name: battery.pack_voltage
     display_name: Battery pack voltage
     description: Community formula using big-endian bytes D4-D5 divided by ten.
@@ -39,6 +58,229 @@ signals:
     status: experimental
     references:
       - https://pure.tue.nl/ws/portalfiles/portal/275783237/Guirado_E.pdf
+  - name: battery.cell_voltage_max
+    display_name: Maximum cell voltage
+    description: Community formula (B0 + 210) / 100 from CAN 0x373.
+    source: {type: can, can_id: 0x373}
+    decoder: {byte_offset: 0, data_type: uint8, scale: 0.01, offset: 2.1}
+    unit: V
+    status: unknown
+    references:
+      - https://myimiev.com/threads/send-imiev-battery-data-to-mqtt-smarthome-homeassistant-here-is-how.5310/
+  - name: battery.cell_voltage_min
+    display_name: Minimum cell voltage
+    description: Community formula (B1 + 210) / 100 from CAN 0x373.
+    source: {type: can, can_id: 0x373}
+    decoder: {byte_offset: 1, data_type: uint8, scale: 0.01, offset: 2.1}
+    unit: V
+    status: unknown
+    references:
+      - https://myimiev.com/threads/send-imiev-battery-data-to-mqtt-smarthome-homeassistant-here-is-how.5310/
+  - name: battery.soc_secondary
+    display_name: Secondary battery state of charge
+    description: Community SOC2 formula (B1 - 10) / 2 from CAN 0x374.
+    source: {type: can, can_id: 0x374}
+    decoder: {byte_offset: 1, data_type: uint8, scale: 0.5, offset: -5}
+    unit: "%"
+    status: unknown
+    references:
+      - https://myimiev.com/threads/send-imiev-battery-data-to-mqtt-smarthome-homeassistant-here-is-how.5310/
+  - name: battery.cell_temperature_max
+    display_name: Maximum cell temperature
+    description: Community CellMaxTemp formula B4 - 50 from CAN 0x374.
+    source: {type: can, can_id: 0x374}
+    decoder: {byte_offset: 4, data_type: uint8, offset: -50}
+    unit: °C
+    status: unknown
+    references:
+      - https://myimiev.com/threads/send-imiev-battery-data-to-mqtt-smarthome-homeassistant-here-is-how.5310/
+  - name: battery.cell_temperature_min
+    display_name: Minimum cell temperature
+    description: Community CellMinTemp formula B5 - 50 from CAN 0x374.
+    source: {type: can, can_id: 0x374}
+    decoder: {byte_offset: 5, data_type: uint8, offset: -50}
+    unit: °C
+    status: unknown
+    references:
+      - https://myimiev.com/threads/send-imiev-battery-data-to-mqtt-smarthome-homeassistant-here-is-how.5310/
+  - name: battery.capacity_full
+    display_name: Reported full battery capacity
+    description: Community Battery100Cap formula B6 / 2 from CAN 0x374; source unit unspecified.
+    source: {type: can, can_id: 0x374}
+    decoder: {byte_offset: 6, data_type: uint8, scale: 0.5}
+    status: unknown
+    references:
+      - https://myimiev.com/threads/send-imiev-battery-data-to-mqtt-smarthome-homeassistant-here-is-how.5310/
+  - name: charging.dc_voltage
+    display_name: Charger DC voltage
+    description: Community ChargeVoltsDC formula 2 * B0 + 0.5 from CAN 0x389.
+    source: {type: can, can_id: 0x389}
+    decoder: {byte_offset: 0, data_type: uint8, scale: 2, offset: 0.5}
+    unit: V
+    status: unknown
+    references:
+      - https://myimiev.com/threads/send-imiev-battery-data-to-mqtt-smarthome-homeassistant-here-is-how.5310/
+  - name: charging.ac_voltage
+    display_name: Charger AC voltage
+    description: Community ChargeVoltsAC byte B1 from CAN 0x389.
+    source: {type: can, can_id: 0x389}
+    decoder: {byte_offset: 1, data_type: uint8}
+    unit: V
+    status: unknown
+    references:
+      - https://myimiev.com/threads/send-imiev-battery-data-to-mqtt-smarthome-homeassistant-here-is-how.5310/
+  - name: charging.dc_current
+    display_name: Charger DC current
+    description: Community ChargeAmpsDC formula B2 / 10 from CAN 0x389.
+    source: {type: can, can_id: 0x389}
+    decoder: {byte_offset: 2, data_type: uint8, scale: 0.1}
+    unit: A
+    status: unknown
+    references:
+      - https://myimiev.com/threads/send-imiev-battery-data-to-mqtt-smarthome-homeassistant-here-is-how.5310/
+  - name: charging.temperature_1
+    display_name: Charger temperature 1
+    description: Community ChargerTemp1 formula B3 - 50 from CAN 0x389.
+    source: {type: can, can_id: 0x389}
+    decoder: {byte_offset: 3, data_type: uint8, offset: -50}
+    unit: °C
+    status: unknown
+    references:
+      - https://myimiev.com/threads/send-imiev-battery-data-to-mqtt-smarthome-homeassistant-here-is-how.5310/
+  - name: charging.temperature_2
+    display_name: Charger temperature 2
+    description: Community ChargerTemp2 formula B4 - 50 from CAN 0x389.
+    source: {type: can, can_id: 0x389}
+    decoder: {byte_offset: 4, data_type: uint8, offset: -50}
+    unit: °C
+    status: unknown
+    references:
+      - https://myimiev.com/threads/send-imiev-battery-data-to-mqtt-smarthome-homeassistant-here-is-how.5310/
+  - name: charging.ac_current
+    display_name: Charger AC current
+    description: Community ChargeAmpsAC formula B6 / 10 from CAN 0x389.
+    source: {type: can, can_id: 0x389}
+    decoder: {byte_offset: 6, data_type: uint8, scale: 0.1}
+    unit: A
+    status: unknown
+    references:
+      - https://myimiev.com/threads/send-imiev-battery-data-to-mqtt-smarthome-homeassistant-here-is-how.5310/
+  - name: environment.outdoor_temperature
+    display_name: Outdoor temperature
+    description: Community OutdoorTemp formula B3 - 50 from CAN 0x286.
+    source: {type: can, can_id: 0x286}
+    decoder: {byte_offset: 3, data_type: uint8, offset: -50}
+    unit: °C
+    status: unknown
+    references:
+      - https://myimiev.com/threads/send-imiev-battery-data-to-mqtt-smarthome-homeassistant-here-is-how.5310/
+  - name: motor.temperature
+    display_name: Traction motor temperature
+    description: Operator-supplied formula B3 - 40 from CAN 0x298.
+    source: {type: can, can_id: 0x298}
+    decoder: {byte_offset: 3, data_type: uint8, offset: -40}
+    unit: °C
+    status: unknown
+  - name: motor.rpm
+    display_name: Traction motor speed
+    description: Operator-supplied formula (B6 * 256 + B7) - 10000 from CAN 0x298.
+    source: {type: can, can_id: 0x298}
+    decoder: {byte_offset: 6, data_type: uint16, offset: -10000}
+    unit: rpm
+    status: unknown
+  - name: vehicle.range_estimate
+    display_name: Estimated remaining range
+    description: Operator-supplied autonomy value from byte B7 of CAN 0x346.
+    source: {type: can, can_id: 0x346}
+    decoder: {byte_offset: 7, data_type: uint8}
+    unit: km
+    status: unknown
+  - name: warning.tpms
+    display_name: Tire-pressure warning
+    description: Operator-supplied TPMS warning mask 0x10 on byte B3 of CAN 0x384.
+    source: {type: can, can_id: 0x384}
+    decoder: {byte_offset: 3, data_type: boolean, bit: 4}
+    status: unknown
+  - name: vehicle.parking_brake
+    display_name: Parking brake applied
+    description: Operator-supplied parking-brake mask 0x01 on byte B3 of CAN 0x384.
+    source: {type: can, can_id: 0x384}
+    decoder: {byte_offset: 3, data_type: boolean, bit: 0}
+    status: unknown
+  - name: body.door_open
+    display_name: Door open
+    description: Operator-supplied door-open mask 0x01 on byte B2 of CAN 0x424.
+    source: {type: can, can_id: 0x424}
+    decoder: {byte_offset: 2, data_type: boolean, bit: 0}
+    status: unknown
+  - name: lighting.mode
+    display_name: Exterior lighting mode
+    description: Operator-supplied high-nibble values from byte B1 of CAN 0x424.
+    source: {type: can, can_id: 0x424}
+    decoder: {byte_offset: 1, data_type: uint8, bit_mask: 0xF0, shift: 4, enum: {"4": position, "6": low_beam}}
+    status: unknown
+  - name: lighting.high_beam
+    display_name: High beam
+    description: Operator-supplied low-nibble mask 0x04 on byte B1 of CAN 0x424.
+    source: {type: can, can_id: 0x424}
+    decoder: {byte_offset: 1, data_type: boolean, bit: 2}
+    status: unknown
+  - name: tire.front_left.pressure
+    display_name: Front-left tire pressure
+    description: Operator-supplied formula B0 * 0.0157 from CAN 0x3D3.
+    source: {type: can, can_id: 0x3D3}
+    decoder: {byte_offset: 0, data_type: uint8, scale: 0.0157}
+    unit: bar
+    status: unknown
+  - name: tire.front_left.temperature
+    display_name: Front-left tire temperature
+    description: Operator-supplied formula B1 - 50 from CAN 0x3D3.
+    source: {type: can, can_id: 0x3D3}
+    decoder: {byte_offset: 1, data_type: uint8, offset: -50}
+    unit: °C
+    status: unknown
+  - name: tire.front_right.pressure
+    display_name: Front-right tire pressure
+    description: Operator-supplied formula B2 * 0.0157 from CAN 0x3D3.
+    source: {type: can, can_id: 0x3D3}
+    decoder: {byte_offset: 2, data_type: uint8, scale: 0.0157}
+    unit: bar
+    status: unknown
+  - name: tire.front_right.temperature
+    display_name: Front-right tire temperature
+    description: Operator-supplied formula B3 - 50 from CAN 0x3D3.
+    source: {type: can, can_id: 0x3D3}
+    decoder: {byte_offset: 3, data_type: uint8, offset: -50}
+    unit: °C
+    status: unknown
+  - name: tire.rear_right.pressure
+    display_name: Rear-right tire pressure
+    description: Operator-supplied formula B4 * 0.0157 from CAN 0x3D3.
+    source: {type: can, can_id: 0x3D3}
+    decoder: {byte_offset: 4, data_type: uint8, scale: 0.0157}
+    unit: bar
+    status: unknown
+  - name: tire.rear_right.temperature
+    display_name: Rear-right tire temperature
+    description: Operator-supplied formula B5 - 50 from CAN 0x3D3.
+    source: {type: can, can_id: 0x3D3}
+    decoder: {byte_offset: 5, data_type: uint8, offset: -50}
+    unit: °C
+    status: unknown
+  - name: tire.rear_left.pressure
+    display_name: Rear-left tire pressure
+    description: Operator-supplied formula B6 * 0.0157 from CAN 0x3D3.
+    source: {type: can, can_id: 0x3D3}
+    decoder: {byte_offset: 6, data_type: uint8, scale: 0.0157}
+    unit: bar
+    status: unknown
+  - name: tire.rear_left.temperature
+    display_name: Rear-left tire temperature
+    description: Operator-supplied formula B7 - 50 from CAN 0x3D3.
+    source: {type: can, can_id: 0x3D3}
+    decoder: {byte_offset: 7, data_type: uint8, offset: -50}
+    unit: °C
+    status: unknown
   - name: vehicle.speed
     display_name: Vehicle speed
     description: Community-documented D1 speed byte.

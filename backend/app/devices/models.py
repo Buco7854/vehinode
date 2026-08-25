@@ -6,6 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from backend.app.common.ids import new_id
 from backend.app.common.models import Base, TimestampMixin
 from backend.app.common.types import JSONType, JSONValue
+from backend.app.devices.policies import default_telemetry_policy
 
 
 class Device(TimestampMixin, Base):
@@ -24,6 +25,7 @@ class Device(TimestampMixin, Base):
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     last_config_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     config_version: Mapped[int] = mapped_column(Integer, default=1)
+    telemetry_policy: Mapped[JSONValue] = mapped_column(JSONType, default=default_telemetry_policy)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     vehicle = relationship("Vehicle", back_populates="devices")
@@ -38,6 +40,7 @@ class EnrollmentToken(Base):
         ForeignKey("vehicles.id", ondelete="CASCADE"), index=True
     )
     intended_name: Mapped[str] = mapped_column(String(120))
+    telemetry_policy: Mapped[JSONValue] = mapped_column(JSONType, default=default_telemetry_policy)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

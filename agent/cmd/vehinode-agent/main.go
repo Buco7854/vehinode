@@ -470,7 +470,7 @@ func commandRun(locations paths, arguments []string) error {
 	flags := flag.NewFlagSet("run", flag.ContinueOnError)
 	gpsOverride := flags.String("gps-device", "", "override GPS path")
 	obdOverride := flags.String("obd-device", "", "override OBD path")
-	syncSeconds := flags.Int("config-sync-seconds", 300, "configuration sync interval in seconds")
+	syncSeconds := flags.Int("config-sync-seconds", 21600, "configuration fallback sync interval in seconds")
 	if err := flags.Parse(arguments); err != nil {
 		return err
 	}
@@ -524,14 +524,18 @@ func commandRun(locations paths, arguments []string) error {
 	agent := &agentruntime.Agent{Queue: queue, Client: api, Position: position, Vehicle: vehicle, BootID: model.NewUUID(), Sequence: sequence}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	nextSample, nextUpload, nextSync := time.Now(), time.Now(), time.Now()
+	now := time.Now()
+	nextObservation, nextSample, nextUpload, nextSync := now, now, now, now
+	detector := agentruntime.NewParkedDetector(now)
+	parked := false
+	latestObservation := agentruntime.Observation{}
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		default:
 		}
-		now := time.Now()
+		now = time.Now()
 		if !now.Before(nextSync) {
 			remote, fetchErr := api.FetchConfiguration()
 			if fetchErr == nil {
@@ -543,6 +547,8 @@ func commandRun(locations paths, arguments []string) error {
 							agent.Vehicle.Close()
 							agent.Vehicle = replacement
 							configuration = candidate
+							nextSample = now
+							nextUpload = now
 						} else {
 							fmt.Fprintln(os.Stderr, "Configuration sync retained last-known-good:", replacementErr)
 						}
@@ -555,17 +561,46 @@ func commandRun(locations paths, arguments []string) error {
 			}
 			nextSync = now.Add(time.Duration(*syncSeconds) * time.Second)
 		}
-		if !now.Before(nextSample) {
-			if _, err := agent.Collect(); err != nil {
-				fmt.Fprintln(os.Stderr, "Collection failed:", err)
+		if !now.Before(nextObservation) {
+			observation := agent.Observe()
+			if observation.Position != nil {
+				latestObservation.Position = observation.Position
 			}
-			nextSample = now.Add(time.Duration(configuration.Sampling.DefaultSeconds) * time.Second)
+			latestObservation.Metrics = observation.Metrics
+			var changed bool
+			parked, changed = detector.Observe(now, observation)
+			if changed {
+				nextSample = now
+				nextUpload = now
+			}
+			nextObservation = now.Add(time.Second)
+		}
+		samplingSeconds := configuration.Sampling.DefaultSeconds
+		uploadSeconds := configuration.Upload.DefaultSeconds
+		if parked {
+			samplingSeconds = configuration.Sampling.EffectiveParkedSeconds()
+			uploadSeconds = configuration.Upload.EffectiveParkedSeconds()
+		}
+		if !now.Before(nextSample) {
+			if _, err := agent.EnqueueObservation(latestObservation); err != nil {
+				fmt.Fprintln(os.Stderr, "Collection failed:", err)
+			} else {
+				nextUpload = now
+			}
+			nextSample = now.Add(time.Duration(samplingSeconds) * time.Second)
 		}
 		if !now.Before(nextUpload) {
-			if _, err := agent.Upload(500); err != nil {
+			result, err := agent.Upload(500)
+			if err != nil {
 				fmt.Fprintln(os.Stderr, err)
+				retrySeconds := min(uploadSeconds, 30)
+				nextUpload = now.Add(time.Duration(retrySeconds) * time.Second)
+			} else if result.ConfigVersion > configuration.Version {
+				nextSync = now
+				nextUpload = now.Add(time.Duration(uploadSeconds) * time.Second)
+			} else {
+				nextUpload = now.Add(time.Duration(uploadSeconds) * time.Second)
 			}
-			nextUpload = now.Add(time.Duration(configuration.Upload.DefaultSeconds) * time.Second)
 		}
 		time.Sleep(250 * time.Millisecond)
 	}

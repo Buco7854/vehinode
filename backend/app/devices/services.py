@@ -1,4 +1,3 @@
-import shlex
 from datetime import timedelta
 
 from sqlalchemy import select
@@ -6,10 +5,15 @@ from sqlalchemy.orm import Session
 
 from backend.app.auth.security import hash_token, new_opaque_token
 from backend.app.branding import APP_VERSION
-from backend.app.common.settings import get_settings
 from backend.app.common.time import as_utc, utcnow
 from backend.app.devices.models import Device, EnrollmentToken
-from backend.app.devices.schemas import DeviceConfig, EnrollRequest, EnrollResponse
+from backend.app.devices.protocol import version_compatibility
+from backend.app.devices.schemas import (
+    DeviceConfig,
+    EnrollRequest,
+    EnrollResponse,
+    TelemetryPolicy,
+)
 from backend.app.vehicle_profiles.services import profile_definition
 from backend.app.vehicles.models import Vehicle
 
@@ -19,10 +23,17 @@ class EnrollmentError(Exception):
 
 
 def device_config(db: Session, device: Device, vehicle: Vehicle) -> DeviceConfig:
+    policy = TelemetryPolicy.model_validate(device.telemetry_policy)
     return DeviceConfig(
         version=device.config_version,
-        sampling={"default_seconds": 5},
-        upload={"default_seconds": 30},
+        sampling={
+            "default_seconds": policy.sampling_seconds,
+            "parked_seconds": policy.parked_sampling_seconds,
+        },
+        upload={
+            "default_seconds": policy.upload_seconds,
+            "parked_seconds": policy.parked_upload_seconds,
+        },
         vehicle_profile=vehicle.vehicle_profile,
         vehicle_profile_definition=profile_definition(
             db, vehicle.owner_id, vehicle.vehicle_profile
@@ -31,7 +42,11 @@ def device_config(db: Session, device: Device, vehicle: Vehicle) -> DeviceConfig
 
 
 def create_enrollment(
-    db: Session, vehicle: Vehicle, name: str, ttl_minutes: int
+    db: Session,
+    vehicle: Vehicle,
+    name: str,
+    ttl_minutes: int,
+    telemetry_policy: TelemetryPolicy,
 ) -> tuple[str, EnrollmentToken]:
     raw = new_opaque_token("venroll")
     now = utcnow()
@@ -39,6 +54,7 @@ def create_enrollment(
         token_hash=hash_token(raw),
         vehicle_id=vehicle.id,
         intended_name=name,
+        telemetry_policy=telemetry_policy.model_dump(),
         created_at=now,
         expires_at=now + timedelta(minutes=ttl_minutes),
     )
@@ -48,6 +64,11 @@ def create_enrollment(
 
 
 def enroll(db: Session, request: EnrollRequest) -> EnrollResponse:
+    if version_compatibility(request.agent_version) == "incompatible":
+        raise EnrollmentError(
+            f"agent version {request.agent_version} is incompatible with server {APP_VERSION}; "
+            "major versions must match"
+        )
     now = utcnow()
     token = db.scalar(
         select(EnrollmentToken)
@@ -67,6 +88,7 @@ def enroll(db: Session, request: EnrollRequest) -> EnrollResponse:
         agent_version=request.agent_version,
         hostname=request.hostname,
         hardware=request.hardware,
+        telemetry_policy=dict(token.telemetry_policy),
     )
     token.used_at = now
     db.add(device)
@@ -86,12 +108,9 @@ def rotate_credential(device: Device) -> str:
     return credential
 
 
-def install_command(token: str) -> str:
-    base = get_settings().public_url.rstrip("/")
-    installer_url = shlex.quote(f"{base}/install-agent")
-    insecure = " --allow-insecure-http" if base.startswith("http://") else ""
-    return (
-        f"curl -fsSL {installer_url} | sudo sh -s -- "
-        f"--server {shlex.quote(base)} --token {shlex.quote(token)} --version {APP_VERSION}"
-        f"{insecure}"
-    )
+def update_telemetry_policy(device: Device, policy: TelemetryPolicy) -> None:
+    serialized = policy.model_dump()
+    if device.telemetry_policy == serialized:
+        return
+    device.telemetry_policy = serialized
+    device.config_version += 1

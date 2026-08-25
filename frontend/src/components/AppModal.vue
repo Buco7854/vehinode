@@ -54,10 +54,10 @@ onBeforeUnmount(() => {
   <Teleport to="body">
     <div v-if="open" class="app-modal-backdrop" @pointerdown.self="close">
       <section ref="dialog" :class="['app-modal panel', { wide, inactive }]" role="dialog" :aria-modal="!inactive" :aria-hidden="inactive || undefined" :inert="inactive || undefined" :aria-label="title">
-        <header class="app-modal-heading">
+        <div class="app-modal-heading">
           <div><slot name="eyebrow" /><h2>{{ title }}</h2></div>
           <button class="icon-button app-modal-close" type="button" :aria-label="$t('common.close')" @click="close"><AppIcon name="close" :size="18" /></button>
-        </header>
+        </div>
         <div class="app-modal-content"><slot /></div>
       </section>
     </div>
